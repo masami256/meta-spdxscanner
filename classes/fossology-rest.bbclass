@@ -107,7 +107,7 @@ python do_spdx () {
         for f_dir, f in list_files(spdx_temp_dir):
             temp_file = os.path.join(spdx_temp_dir,f_dir,f)
             shutil.copy(temp_file, temp_dir)
-    #    shutil.rmtree(spdx_temp_dir)
+        shutil.rmtree(spdx_temp_dir)
     d.setVar('WORKDIR', spdx_workdir)
     info['sourcedir'] = spdx_workdir
     git_path = "%s/git/.git" % info['sourcedir']
@@ -461,13 +461,12 @@ def get_spdx(d, report_id, spdx_file):
             bb.warn(d.getVar('PN', True) + ": Get the first line is " + first_line + ". Try agin")
 
         file.close()
-        os.remove(spdx_file)
         i += 1
         delaytime = delaytime + 20
         time.sleep(delaytime)
 
     file.close()
-    bb.warn(d.getVar('PN', True) + ": Get spdx failed, Please check your fossology server.")
+    bb.warn(d.getVar('PN', True) + ": SPDX file maybe have something wrong, please confirm.")
 
 def invoke_rest_api(d, tar_file, spdx_file, folder_id):
     import os
