@@ -15,6 +15,7 @@ meta-spdxscanner supports the following SPDX create tools.
 
 3. scancode-toolkit
 - openembedded-core
+- meta-python2
 
 # How to use
 
@@ -25,7 +26,9 @@ meta-spdxscanner supports the following SPDX create tools.
 ```
   INHERIT += "fossology-rest"
   TOKEN = "eyJ0eXAiO..."
-  FOSSOLOGY_SERVER = "http://xx.xx.xx.xx:8081/repo" //By default, it is http://127.0.0.1:8081/repo
+  FOSSOLOGY_SERVER = "http://xx.xx.xx.xx:8081/repo" //Optional, by default, it is http://127.0.0.1:8081/repo
+  FOLDER_NAME = "xxxx" //Optional, by default, it is the top folder "Software Repository"(folderId=1).
+  SPDX_DEPLOY_DIR = "${DeployDir}" //Optional, by default, spdx files will be deployed to ${BUILD_DIR}/tmp/deploy/spdx/ 
 ```
 Note
 - If you want to use fossology-rest.bbclass, you have to make sure that fossology server on your host and make sure it works well.
@@ -39,18 +42,21 @@ Note
 
 ```
   INHERIT += "fossdriver-host"
+  SPDX_DEPLOY_DIR = "${DeployDir}" //Optional, by default, spdx files will be deployed to ${BUILD_DIR}/tmp/deploy/spdx/
 ```
 Note
 - If you want to use fossdriver-host.bbclass, you have to make sure that fossology server and fossdriver has been installed on your host and make sure it works well.
   Please reference to https://hub.docker.com/r/fossology/fossology/ and https://github.com/fossology/fossdriver.
 - Please use meta-spdxscanner/classes/nopackages.bbclass instead of oe-core. Because there is no necessary to create spdx files for *-native.
   
-3.  scancode.bbclass
+3.  scancode-tk.bbclass
 - inherit the folowing class in your conf/local.conf for all of recipes or
   in some recipes which you want.
 
 ```
   INHERIT += "scancode-tk"
+  SPDX_DEPLOY_DIR = "${DeployDir}" //Optional, by default, spdx files will be deployed to ${BUILD_DIR}/tmp/deploy/spdx/
+
 ```
 Note
 - If you want to use scancode.bbclass, There is no need to install anything on your host.
