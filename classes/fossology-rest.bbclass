@@ -272,7 +272,7 @@ def has_upload(d, tar_file, folder_id):
     bb.note(str(len(upload_output)))
     for i in range(0, len(upload_output)):
         if upload_output[i]["uploadname"] == file_name and str(upload_output[i]["folderid"]) == str(folder_id):
-            bb.warn("Find " + file_name + " in fossology server \"Software Repository\" folder. So, will not upload again.")
+            bb.warn("Find " + file_name + " in fossology server. So, will not upload again.")
             return upload_output[i]["id"]
     return False
 
