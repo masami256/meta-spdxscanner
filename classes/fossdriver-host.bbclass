@@ -56,23 +56,23 @@ python do_spdx () {
     temp_dir = os.path.join(d.getVar('WORKDIR'), "temp")
     
     info = {} 
-    info['workdir'] = (d.getVar('WORKDIR', True) or "")
-    info['pn'] = (d.getVar( 'PN', True ) or "")
-    info['pv'] = (d.getVar( 'PV', True ) or "")
-    info['package_download_location'] = (d.getVar( 'SRC_URI', True ) or "")
+    info['workdir'] = (d.getVar('WORKDIR') or "")
+    info['pn'] = (d.getVar( 'PN') or "")
+    info['pv'] = (d.getVar( 'PV') or "")
+    info['package_download_location'] = (d.getVar( 'SRC_URI') or "")
     if info['package_download_location'] != "":
         info['package_download_location'] = info['package_download_location'].split()[0]
-    info['spdx_version'] = (d.getVar('SPDX_VERSION', True) or '')
-    info['data_license'] = (d.getVar('DATA_LICENSE', True) or '')
+    info['spdx_version'] = (d.getVar('SPDX_VERSION') or '')
+    info['data_license'] = (d.getVar('DATA_LICENSE') or '')
     info['creator'] = {}
-    info['creator']['Tool'] = (d.getVar('CREATOR_TOOL', True) or '')
-    info['license_list_version'] = (d.getVar('LICENSELISTVERSION', True) or '')
-    info['package_homepage'] = (d.getVar('HOMEPAGE', True) or "")
-    info['package_summary'] = (d.getVar('SUMMARY', True) or "")
+    info['creator']['Tool'] = (d.getVar('CREATOR_TOOL') or '')
+    info['license_list_version'] = (d.getVar('LICENSELISTVERSION') or '')
+    info['package_homepage'] = (d.getVar('HOMEPAGE') or "")
+    info['package_summary'] = (d.getVar('SUMMARY') or "")
     info['package_summary'] = info['package_summary'].replace("\n","")
     info['package_summary'] = info['package_summary'].replace("'"," ")
-    info['package_contains'] = (d.getVar('CONTAINED', True) or "")
-    info['package_static_link'] = (d.getVar('STATIC_LINK', True) or "")
+    info['package_contains'] = (d.getVar('CONTAINED') or "")
+    info['package_static_link'] = (d.getVar('STATIC_LINK') or "")
     info['modified'] = "false"
     srcuri = d.getVar("SRC_URI", False).split()
     length = len("file://")
@@ -82,7 +82,7 @@ python do_spdx () {
             if item.endswith(".patch") or item.endswith(".diff"):
                 info['modified'] = "true"
 
-    manifest_dir = (d.getVar('SPDX_DEPLOY_DIR', True) or "")
+    manifest_dir = (d.getVar('SPDX_DEPLOY_DIR') or "")
     if not os.path.exists( manifest_dir ):
         bb.utils.mkdirhier( manifest_dir )
 
