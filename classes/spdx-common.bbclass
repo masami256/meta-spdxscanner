@@ -36,6 +36,13 @@ def exclude_useless_paths(tarinfo):
             return None
     return tarinfo
 
+def spdx_get_tarall_name(d, suffix, ar_outdir):
+    if suffix:
+        filename = '%s-%s.tar.gz' % (d.getVar('PF'), suffix)
+    else:
+        filename = '%s.tar.gz' % d.getVar('PF')
+    tarname = os.path.join(ar_outdir, filename)
+    return tarname
 def spdx_create_tarball(d, srcdir, suffix, ar_outdir):
     """
     create the tarball from srcdir
