@@ -10,4 +10,5 @@ deltask do_package_write_ipk_setscene
 deltask do_package_write_deb_setscene
 deltask do_package_qa_setscene
 deltask do_packagedata_setscene
+deltask do_spdx_upload
 deltask do_spdx
