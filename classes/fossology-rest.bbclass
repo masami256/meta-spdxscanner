@@ -22,7 +22,7 @@ HOSTTOOLS_NONFATAL += "curl"
 
 CREATOR_TOOL = "fossology-rest.bbclass in meta-spdxscanner"
 
-NO_PROXY = "localhost, 127.0.0.1"
+NO_PROXY ?= "127.0.0.1"
 
 # If ${S} isn't actually the top-level source directory, set SPDX_S to point at
 # the real top-level directory.
@@ -146,6 +146,8 @@ def get_folder_id_by_name(d, folder_name):
     import subprocess
     import json
 
+    no_proxy = (d.getVar('NO_PROXY', True) or "")
+
     server_url = (d.getVar('FOSSOLOGY_SERVER', True) or "")
     if server_url == "":
         bb.note("Please set fossology server URL by setting FOSSOLOGY_SERVER!\n")
@@ -158,7 +160,7 @@ def get_folder_id_by_name(d, folder_name):
 
     rest_api_cmd = "curl -k -s -S -X GET " + server_url + "/api/v1/folders" \
                    + " -H \"Authorization: Bearer " + token + "\"" \
-                   + " --noproxy " + NO_PROXY
+                   + " --noproxy " + no_proxy
     bb.note("Invoke rest_api_cmd = " + rest_api_cmd )
     try:
         all_folder = subprocess.check_output(rest_api_cmd, stderr=subprocess.STDOUT, shell=True)
@@ -185,6 +187,7 @@ def create_folder(d, folder_name):
     import os
     import subprocess
 
+    no_proxy = (d.getVar('NO_PROXY', True) or "")
     server_url = (d.getVar('FOSSOLOGY_SERVER', True) or "")
     if server_url == "":
         bb.note("Please set fossology server URL by setting FOSSOLOGY_SERVER!\n")
@@ -199,7 +202,7 @@ def create_folder(d, folder_name):
                    + " -H \'parentFolder: 1\'" \
                    + " -H \'folderName: " + folder_name + "\'" \
                    + " -H \"Authorization: Bearer " + token + "\"" \
-                   + " --noproxy " + NO_PROXY
+                   + " --noproxy " + no_proxy
     bb.note("Invoke rest_api_cmd = " + rest_api_cmd)
     try:
         add_folder = subprocess.check_output(rest_api_cmd, stderr=subprocess.STDOUT, shell=True)
@@ -237,7 +240,7 @@ def has_upload(d, tar_file, folder_id):
     import subprocess
     
     (work_dir, file_name) = os.path.split(tar_file) 
-
+    no_proxy = (d.getVar('NO_PROXY', True) or "")
     server_url = (d.getVar('FOSSOLOGY_SERVER', True) or "")
     if server_url == "":
         bb.note("Please set fossology server URL by setting FOSSOLOGY_SERVER!\n")
@@ -250,7 +253,7 @@ def has_upload(d, tar_file, folder_id):
 
     rest_api_cmd = "curl -k -s -S -X GET " + server_url + "/api/v1/uploads" \
                    + " -H \"Authorization: Bearer " + token + "\"" \
-                   + " --noproxy " + NO_PROXY
+                   + " --noproxy " + no_proxy
     bb.note("Invoke rest_api_cmd = " + rest_api_cmd )
         
     try:
@@ -284,6 +287,7 @@ def upload(d, tar_file, folder):
     delaytime = 50
     i = 0
  
+    no_proxy = (d.getVar('NO_PROXY', True) or "")
     server_url = (d.getVar('FOSSOLOGY_SERVER', True) or "")
     if server_url == "":
         bb.note("Please set fossology server URL by setting FOSSOLOGY_SERVER!\n")
@@ -301,7 +305,7 @@ def upload(d, tar_file, folder):
                     + " -H \'public: public\'"  \
                     + " -H \'Content-Type: multipart/form-data\'"  \
                     + " -F \'fileInput=@\"" + tar_file + "\";type=application/octet-stream\'" \
-                    + " --noproxy " + NO_PROXY
+                    + " --noproxy " + no_proxy
     bb.note("Upload : Invoke rest_api_cmd = " + rest_api_cmd )
     while i < 10:
         time.sleep(delaytime)
@@ -326,6 +330,7 @@ def analysis(d, folder_id, upload_id):
     delaytime = 50
     i = 0
 
+    no_proxy = (d.getVar('NO_PROXY', True) or "")
     server_url = (d.getVar('FOSSOLOGY_SERVER', True) or "")
     if server_url == "":
         bb.note("Please set fossology server URL by setting FOSSOLOGY_SERVER!\n")
@@ -342,7 +347,7 @@ def analysis(d, folder_id, upload_id):
                     + " -H \"Authorization: Bearer " + token + "\"" \
                     + " -H \'Content-Type: application/json\'" \
                     + " --data \'{\"analysis\": {\"bucket\": true,\"copyright_email_author\": true,\"ecc\": true, \"keyword\": true,\"mime\": true,\"monk\": true,\"nomos\": true,\"package\": true},\"decider\": {\"nomos_monk\": true,\"bulk_reused\": true,\"new_scanner\": true}}\'" \
-                    + " --noproxy " + NO_PROXY
+                    + " --noproxy " + no_proxy
     bb.note("Analysis : Invoke rest_api_cmd = " + rest_api_cmd )
     while i < 10:
         try:
@@ -374,6 +379,7 @@ def trigger(d, folder_id, upload_id):
     delaytime = 50
     i = 0
 
+    no_proxy = (d.getVar('NO_PROXY', True) or "")
     server_url = (d.getVar('FOSSOLOGY_SERVER', True) or "")
     if server_url == "":
         bb.note("Please set fossology server URL by setting FOSSOLOGY_SERVER!\n")
@@ -388,7 +394,7 @@ def trigger(d, folder_id, upload_id):
                     + " -H \"Authorization: Bearer " + token + "\"" \
                     + " -H \"uploadId: " + str(upload_id) + "\"" \
                     + " -H \'reportFormat: spdx2tv\'" \
-                    + " --noproxy " + NO_PROXY
+                    + " --noproxy " + no_proxy
     bb.note("trigger : Invoke rest_api_cmd = " + rest_api_cmd )
     while i < 10:
         time.sleep(delaytime)
@@ -418,6 +424,7 @@ def get_spdx(d, report_id, spdx_file):
     complete = False
     i = 0
 
+    no_proxy = (d.getVar('NO_PROXY', True) or "")
     server_url = (d.getVar('FOSSOLOGY_SERVER', True) or "")
     if server_url == "":
         bb.note("Please set fossology server URL by setting FOSSOLOGY_SERVER!\n")
@@ -430,7 +437,7 @@ def get_spdx(d, report_id, spdx_file):
     rest_api_cmd = "curl -k -s -S -X GET " + server_url + "/api/v1/report/" + report_id \
                     + " -H \'accept: text/plain\'" \
                     + " -H \"Authorization: Bearer " + token + "\"" \
-                    + " --noproxy " + NO_PROXY
+                    + " --noproxy " + no_proxy 
     bb.note("get_spdx : Invoke rest_api_cmd = " + rest_api_cmd )
     while i < 10:
         time.sleep(delaytime)
