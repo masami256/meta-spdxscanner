@@ -195,7 +195,7 @@ def fossologyreport(d, bb, info):
         bb.note("spdx: fossologyanalyze: excluding "+ pn)
         return
 
-    if not info['folder_id']:
+    if not 'folder_id' in info:
         # retrieve the folder id
         info['folder_id'] = get_folder_id(d)
     if not 'report_id' in info:
