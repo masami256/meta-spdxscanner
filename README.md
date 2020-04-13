@@ -59,6 +59,7 @@ Note
 
 ```
 Note
+- scancode-tk has to install on host development system, so, make sure the version of python on host development system is 3.6.
 - If you want to use scancode.bbclass, There is no need to install anything on your host.
 - To aviod loop dependence,please use meta-spdxscanner/classes/nopackages.bbclass instead the file comes from oe-core.
 
