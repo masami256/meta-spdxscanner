@@ -35,6 +35,6 @@ do_install_append(){
 
 	install ${S}/scancode ${D}${bindir}/
 	cp -rf ${S}/bin/* ${D}${bindir}/bin/
-	mv ${S}/include/* ${D}${bindir}/include/
+	cp -rf ${S}/include/* ${D}${bindir}/include/
 }
 
