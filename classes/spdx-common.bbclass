@@ -15,8 +15,13 @@ SPDXEPENDENCY += " tar-native:do_populate_sysroot"
 
 SPDX_DEPLOY_DIR ??= "${DEPLOY_DIR}/spdx"
 SPDX_TOPDIR ?= "${WORKDIR}/spdx_sstate_dir"
-SPDX_OUTDIR = "${SPDX_TOPDIR}/${TARGET_SYS}/${PF}/"
-SPDX_WORKDIR = "${WORKDIR}/spdx_temp/"
+SPDX_OUTDIR ?= "${SPDX_TOPDIR}/${TARGET_SYS}/${PF}/"
+SPDX_WORKDIR ?= "${WORKDIR}/spdx_temp/"
+
+SPDX_EXCLUDE_NATIVE ??= "1"
+SPDX_EXCLUDE_SDK ??= "1"
+SPDX_EXCLUDE_PACKAGES ??= ""
+
 
 do_spdx[dirs] = "${WORKDIR}"
 
@@ -28,6 +33,38 @@ SPDX_S ?= "${S}"
 
 addtask do_spdx before do_configure after do_patch
 
+# Exclude package based on variables.
+# SPDX_EXCLUDE_NATIVE ??= "1"
+# SPDX_EXCLUDE_SDK ??= "1"
+# SPDX_EXCLUDE_PACKAGES ??= ""
+def excluded_package(d, pn):
+    assume_provided = (d.getVar("ASSUME_PROVIDED") or "").split()
+    if pn in assume_provided:
+        for p in d.getVar("PROVIDES").split():
+            if p != pn:
+                pn = p
+                break
+    if d.getVar('BPN') in ['gcc', 'libgcc']:
+        #bb.debug(1, 'spdx: There is a bug in the scan of %s, skip it.' % pn)
+        return True
+    # The following: do_fetch, do_unpack and do_patch tasks have been deleted,
+    # so avoid archiving do_spdx here.
+    # -native is for the host aka during the build
+    if pn.endswith('-native') and d.getVar("SPDX_EXCLUDE_NATIVE") == "1":
+        return True
+    # nativesdk- is for the developer SDK
+    if pn.startswith('nativesdk-') and d.getVar("SPDX_EXCLUDE_SDK") == "1":
+        return True
+    # packagegroups have no files to scan
+    if pn.startswith('packagegroup'):
+        return True
+    if pn.startswith('glibc-locale'):
+        return True
+    for p in d.getVar("SPDX_EXCLUDE_PACKAGES").split():
+        if p in pn:
+            return True
+    return False
+
 def exclude_useless_paths(tarinfo):
     if tarinfo.isdir():
         if tarinfo.name.endswith('/temp') or tarinfo.name.endswith('/patches') or tarinfo.name.endswith('/.pc'):
@@ -36,13 +73,6 @@ def exclude_useless_paths(tarinfo):
             return None
     return tarinfo
 
-def spdx_get_tarall_name(d, suffix, ar_outdir):
-    if suffix:
-        filename = '%s-%s.tar.gz' % (d.getVar('PF'), suffix)
-    else:
-        filename = '%s.tar.gz' % d.getVar('PF')
-    tarname = os.path.join(ar_outdir, filename)
-    return tarname
 def spdx_create_tarball(d, srcdir, suffix, ar_outdir):
     """
     create the tarball from srcdir
@@ -64,7 +94,7 @@ def spdx_create_tarball(d, srcdir, suffix, ar_outdir):
         filename = '%s.tar.gz' % d.getVar('PF')
     tarname = os.path.join(ar_outdir, filename)
 
-    bb.note('Creating %s' % tarname)
+    bb.warn('Creating %s' % tarname)
     tar = tarfile.open(tarname, 'w:gz')
     tar.add(srcdir, arcname=os.path.basename(srcdir), filter=exclude_useless_paths)
     tar.close()
