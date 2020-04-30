@@ -247,7 +247,7 @@ def invoke_fossology_python(d, tar_file, spdx_file):
 
 
     fossology_server = d.getVar('FOSSOLOGY_SERVER')
-    token = d.getVar('FOSSOLOGY_TOKEN')
+    token = d.getVar('TOKEN')
 
     (work_dir, tar_file) = os.path.split(tar_file)
     os.chdir(work_dir)
