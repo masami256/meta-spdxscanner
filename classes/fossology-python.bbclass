@@ -16,10 +16,10 @@
 #
 inherit spdx-common 
 
-SPDXEPENDENCY += "python3-fossology-native:do_populate_sysroot"
+#SPDXEPENDENCY += "python3-fossology-native:do_populate_sysroot"
 #SPDXEPENDENCY += "python3-requests-native:do_populate_sysroot"
 
-CREATOR_TOOL = "fossology-python.bbclass in meta-spdxscanner"
+#CREATOR_TOOL = "fossology-python.bbclass in meta-spdxscanner"
 FOSSOLOGY_SERVER ?= "http://127.0.0.1/repo"
 
 # If ${S} isn't actually the top-level source directory, set SPDX_S to point at
@@ -145,16 +145,22 @@ def upload_oss(d, folder, foss, filepath):
 
     upload_list = foss.list_uploads()
     upload = None
-    
+
+    bb.note("Check folder, %s ,has been uploaded?" % filename)
+    bb.note("%s" % folder.name)
     for upload in upload_list:
-        if upload.uploadname == filename and upload.foldername == folder:
-            bb.warn("%s has uploaded, won't upload agin")
+        bb.note("uploaded name = %s" % upload.uploadname)
+        if upload.uploadname == filename and upload.foldername == folder.name:
+            bb.note("The size of uploaded fileis %s" % upload.filesize)
+            bb.note("%s has uploaded, won't upload agin" % filename)
             return upload
     upload = foss.upload_file(
     folder,
     file=filepath,
     access_level=AccessLevel.PUBLIC,
     )
+    foss.detail_upload(upload.id)
+    bb.note("upload_oss result: upload.filesize = %s." % upload.filesize)
     bb.note("The result of upload is : %s " % upload)
     return upload
     
@@ -168,10 +174,13 @@ def create_folder(d, foss, token, folder_name):
     #bb.warn("folder id = %s" % folder.id)
     return folder
   
-def start_schedule_jobs(d, folder, foss, upload, upload_filename):
+def start_schedule_jobs(d, folder, foss, upload_oss, upload_filename, wait=False, timeout=30):
     from fossology.exceptions import FossologyApiError
     from fossology.obj import Agents
-    
+    job = None
+    job_wait = 120
+    i = 0
+
     try:
         analysis_agents = foss.user.agents.to_dict()
     except AttributeError:
@@ -193,16 +202,52 @@ def start_schedule_jobs(d, folder, foss, upload, upload_filename):
             "reuse_enhanced": True,
         },
     }
-    try:
-        job = foss.schedule_jobs(folder, upload, jobs_spec)
-        if job.name != upload_filename:
-            bb.error("Job %s does not relate to the correct upload" % job.name )
+    jobs = foss.list_jobs(upload=upload_oss)
+    if jobs is None:
+        try:
+            job = foss.schedule_jobs(folder, upload_oss, jobs_spec)
+            if job.name != upload_filename:
+                bb.error("Job %s does not relate to the correct upload" % job.name )
+        except FossologyApiError as error:
+            bb.error(error.message)
+    elif len(jobs) < 2:
+        try:
+            job = foss.schedule_jobs(folder, upload_oss, jobs_spec)
+            if job.name != upload_filename:
+                bb.error("Job %s does not relate to the correct upload" % job.name )
+        except FossologyApiError as error:
+            bb.error(error.message)
+    else:
+        bb.note("%s jobs has existed for updated %s " % (len(jobs), upload_filename))
 
-    except FossologyApiError as error:
-        bb.error(error.message)
+    jobs = foss.list_jobs(upload=upload_oss)
+    bb.note("jobs[0].uploadId = %s" % jobs[0].uploadId)
+    while i < 5:
+        i += 1
+        if len(jobs) < 2:
+            bb.warn("%s jobs start not completed " % upload_filename)
+            time.sleep(30)
+        else:
+            break
+
+    jobs = foss.list_jobs(upload=upload_oss)
+    if len(jobs) < 2:
+        bb.error("%s jobs start not completed,please checkout fossology server." % upload_filename)
+
+    job = foss.detail_job(jobs[1].id, wait=True, timeout=job_wait)
+    if job.status != "Completed":
+        bb.error("The Job is still not completed yet. Please comfirm your fossology server.")
+    else:
+        bb.note("%s jobs has completed." % upload_filename)
+        
+    return job
 
 def get_report(d, foss, upload, report_name):
-    import os
+    import os 
+    import time
+    i = 0
+    wait_time = 60
+    complete = False
 
     from fossology.exceptions import FossologyApiError
     from fossology.obj import ReportFormat
@@ -213,22 +258,49 @@ def get_report(d, foss, upload, report_name):
         )
     except FossologyApiError as error:
         bb.error(error.message)
+    while i < 4:
+        try:
+            # Plain text
+            report = foss.download_report(report_id)
+            with open(report_name, "w+") as report_file:
+                report_file.write(report)
+        except FossologyApiError as error:
+            bb.error(error.message)
 
-    try:
-        # Plain text
-        report = foss.download_report(report_id)
-        with open(report_name, "w+") as report_file:
-            report_file.write(report)
-    except FossologyApiError as error:
-        bb.error(error.message)
+        if os.path.exists(report_name):
+            if bb.data.inherits_class('packagegroup',d):
+                return True
+            if bb.data.inherits_class('image',d):
+                return True
 
-    if os.path.exists(report_name):
-        if os.path.getsize(report_name):
-            bb.note("Get %s success." % report_name)
+            if os.path.getsize(report_name):
+                file = open(report_name,'r+')
+                first_line = file.readline()
+                if "SPDXVersion" in first_line:
+                    line = file.readline()
+                    while line:
+                        if "FileName:" in line:
+                            complete = True
+                            break
+                        line = file.readline()
+                    file.close()
+                    if complete == False:
+                        bb.warn("%s is empty,try again." % report_name)
+                        time.sleep(wait_time)
+                    else:
+                        return True
+                else:
+                    bb.warn(d.getVar('PN', True) + ": Get the first line is " + first_line + ". Try agin")
+                    os.remove(report_name)
+                    time.sleep(wait_time)
+            else:
+                bb.warn("%s is empty." % report_name)
+                time.sleep(wait_time)
         else:
-            bb.note("%s is empty." % report_name)
-    else:
-        bb.note("Can't get %s." % report_name)
+            bb.warn("Get %s fail, try again." % report_name)
+            time.sleep(wait_time)
+    bb.warn("The file of %s is unnormal. Please confirm." % report_name)
+    return False
 
 def invoke_fossology_python(d, tar_file, spdx_file):
     import os
@@ -245,6 +317,9 @@ def invoke_fossology_python(d, tar_file, spdx_file):
     logger.setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO)
 
+    wait_time = 200
+    i = 0
+    complete = False
 
     fossology_server = d.getVar('FOSSOLOGY_SERVER')
     token = d.getVar('TOKEN')
@@ -262,10 +337,44 @@ def invoke_fossology_python(d, tar_file, spdx_file):
         folder = create_folder(d, foss, token, folder_name)
     else:
         folder = foss.rootFolder
-    
+   
     bb.note("Begin to upload.")
     upload = upload_oss(d, folder, foss, tar_file)
-    start_schedule_jobs(d, folder, foss, upload, tar_file)
-    get_report(d, foss, upload, spdx_file)    
+    job = start_schedule_jobs(d, folder, foss, upload, tar_file)
+    time.sleep(wait_time)
+    while i < 3:
+        i += 1
+        try:
+            job_dtl = foss.detail_job(job.id, wait=True, timeout=60)
+        except FossologyApiError as error:
+            bb.note("Job has not completed.")
+            time.sleep(wait_time)
+            continue
+        bb.note("Job for %s is completed." % tar_file)
+        break
+    time.sleep(wait_time)
+    i = 0
+    while i < 2:
+        i += 1
+        get_report(d, foss, upload, spdx_file)
+        if bb.data.inherits_class('packagegroup',d):
+            return True
+        if bb.data.inherits_class('image',d):
+            return True
+
+        file = open(spdx_file,'r+')
+        line = file.readline()
+        while line:
+            if "LicenseID:" in line:
+                complete = True
+                break
+            line = file.readline()
+        file.close()
+        if complete == False:
+            bb.warn("license info not complete, try agin.")
+            os.remove(spdx_file)
+            time.sleep(wait_time)            
+        else:
+            return True
 
 EXPORT_FUNCTIONS do_spdx

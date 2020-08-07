@@ -493,7 +493,7 @@ def invoke_rest_api(d, tar_file, spdx_file, folder_id):
     else:
         report_id = trigger(d, folder_id, upload_id)
         if report_id == False:
-            bb.note(d.getVar('PN', True) + ": Although has uploaded,get report fail. Maybe hasn't analysised.")
+            bb.note(d.getVar('PN', True) + ": Although has uploaded,trigger fail. Maybe hasn't analysised.")
         else:
             spdx2tv = get_spdx(d, report_id, spdx_file)
             if spdx2tv == False:
