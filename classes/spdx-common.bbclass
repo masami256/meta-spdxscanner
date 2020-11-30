@@ -31,7 +31,7 @@ LICENSELISTVERSION = "2.6"
 # the real top-level directory.
 SPDX_S ?= "${S}"
 
-addtask do_spdx before do_configure after do_patch
+#addtask do_spdx before do_configure after do_patch
 
 # Exclude package based on variables.
 # SPDX_EXCLUDE_NATIVE ??= "1"
@@ -73,6 +73,24 @@ def exclude_useless_paths(tarinfo):
             return None
     return tarinfo
 
+def get_tar_name(d, suffix):
+    """
+    get the name of tarball
+    """
+
+    # Make sure we are only creating a single tarball for gcc sources
+    #if (d.getVar('SRC_URI') == ""):
+    #    return
+    # For the kernel archive, srcdir may just be a link to the
+    # work-shared location. Use os.path.realpath to make sure
+    # that we archive the actual directory and not just the link.
+    if suffix:
+        filename = '%s-%s.tar.gz' % (d.getVar('PF'), suffix)
+    else:
+        filename = '%s.tar.gz' % d.getVar('PF')
+
+    return filename
+
 def spdx_create_tarball(d, srcdir, suffix, ar_outdir):
     """
     create the tarball from srcdir
@@ -86,19 +104,15 @@ def spdx_create_tarball(d, srcdir, suffix, ar_outdir):
     # work-shared location. Use os.path.realpath to make sure
     # that we archive the actual directory and not just the link.
     srcdir = os.path.realpath(srcdir)
-
     bb.utils.mkdirhier(ar_outdir)
-    if suffix:
-        filename = '%s-%s.tar.gz' % (d.getVar('PF'), suffix)
-    else:
-        filename = '%s.tar.gz' % d.getVar('PF')
-    tarname = os.path.join(ar_outdir, filename)
 
+    filename = get_tar_name(d, suffix)
+    tarname = os.path.join(ar_outdir, filename)
     bb.warn('Creating %s' % tarname)
     tar = tarfile.open(tarname, 'w:gz')
     tar.add(srcdir, arcname=os.path.basename(srcdir), filter=exclude_useless_paths)
     tar.close()
-    #shutil.rmtree(srcdir)
+    shutil.rmtree(srcdir)
     return tarname
 
 # Run do_unpack and do_patch
@@ -213,10 +227,10 @@ def find_infoinlicensefile(sstatefile):
             license = license.split("\n")[0]
             file_path = file_path.split("\n")[0]
             path_list = file_path.split('/')
-            if len(file_path.split('/')) < 4:
-                file_path_simple = file_path.split('/',1)[1]
+            if len(file_path.split('/')) < 5:
+                file_path_simple = file_path.split('/',3)[3]
             else:
-                file_path_simple = file_path.split('/',2)[2]
+                file_path_simple = file_path.split('/',4)[4]
             
             #license_in_file = file_path + ": " + license
             license_in_file = "%s%s%s%s" % ("PackageLicenseInfoInLicenseFile: ",file_path_simple,": ",license)

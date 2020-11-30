@@ -14,20 +14,29 @@
 #    By default, SPDX_DEPLOY_DIR is tmp/deploy/
 # 3) Added TOKEN has been set in conf/local.conf
 #
+COPYLEFT_RECIPE_TYPES ?= 'target nativesdk'
+inherit copyleft_filter
+
 inherit spdx-common 
 
-#SPDXEPENDENCY += "python3-fossology-native:do_populate_sysroot"
-#SPDXEPENDENCY += "python3-requests-native:do_populate_sysroot"
+do_upload[dirs] = "${SPDX_TOPDIR}"
+do_schedule_jobs[dirs] = "${SPDX_TOPDIR}"
+do_get_report[dirs] = "${SPDX_OUTDIR}"
 
 #CREATOR_TOOL = "fossology-python.bbclass in meta-spdxscanner"
 FOSSOLOGY_SERVER ?= "http://127.0.0.1/repo"
+WAIT_TIME ?= "180"
 
-# If ${S} isn't actually the top-level source directory, set SPDX_S to point at
-# the real top-level directory.
-SPDX_S ?= "${S}"
+python () {
+    from multiprocessing import Lock
 
-python do_spdx () {
-    import os, sys, json, shutil
+    global create_folder_lock 
+
+    create_folder_lock = Lock()
+
+    #If not for target, won't creat spdx.
+    if bb.data.inherits_class('nopackages', d):
+        return
 
     pn = d.getVar('PN')
     assume_provided = (d.getVar("ASSUME_PROVIDED") or "").split()
@@ -57,8 +66,363 @@ python do_spdx () {
     spdx_workdir = d.getVar('SPDX_WORKDIR')
     spdx_temp_dir = os.path.join(spdx_workdir, "temp")
     temp_dir = os.path.join(d.getVar('WORKDIR'), "temp")
+
+    info = {}
+    info['workdir'] = (d.getVar('WORKDIR') or "")
+    info['pn'] = (d.getVar( 'PN') or "")
+    info['pv'] = (d.getVar( 'PV') or "")
+
+    manifest_dir = (d.getVar('SPDX_DEPLOY_DIR') or "")
+    if not os.path.exists( manifest_dir ):
+        bb.utils.mkdirhier( manifest_dir )
+
+    info['outfile'] = os.path.join(manifest_dir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    sstatefile = os.path.join(spdx_outdir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    if os.path.exists(info['outfile']):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        return
+    if os.path.exists( sstatefile ):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        create_manifest(info,sstatefile)
+        return
+
+    d.appendVarFlag('do_schedule_jobs', 'depends', ' %s:do_upload' % pn)
+    d.appendVarFlag('do_get_report', 'depends', ' %s:do_schedule_jobs' % pn)
+    d.appendVarFlag('do_spdx', 'depends', ' %s:do_get_report' % pn)
+    bb.build.addtask('do_upload', 'do_configure', 'do_patch', d)
+    bb.build.addtask('do_schedule_jobs', 'do_configure', 'do_upload', d)
+    bb.build.addtask('do_get_report', 'do_configure', 'do_schedule_jobs', d)
+    bb.build.addtask('do_spdx', 'do_configure', 'do_get_report', d)
+}
+
+python do_upload(){
+    import logging, shutil,time
+
+    if bb.data.inherits_class('nopackages', d):
+        return
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logging.basicConfig(level=logging.INFO)
+
+    from fossology import Fossology, fossology_token
+    from fossology.obj import TokenScope
+    from fossology.exceptions import FossologyApiError, AuthenticationError
+    from tenacity import retry, TryAgain, stop_after_attempt
+
+
+    info = {}
+    info['workdir'] = (d.getVar('WORKDIR') or "")
+    info['pn'] = (d.getVar( 'PN') or "")
+    info['pv'] = (d.getVar( 'PV') or "")
+
+    manifest_dir = (d.getVar('SPDX_DEPLOY_DIR') or "")
+    if not os.path.exists( manifest_dir ):
+        bb.utils.mkdirhier( manifest_dir )
+
+    spdx_outdir = d.getVar('SPDX_OUTDIR')
+    info['outfile'] = os.path.join(manifest_dir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    sstatefile = os.path.join(spdx_outdir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    if os.path.exists(info['outfile']):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        return
+    if os.path.exists( sstatefile ):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        create_manifest(info,sstatefile)
+        return
+
+    fossology_server = d.getVar('FOSSOLOGY_SERVER')
+    token = d.getVar('TOKEN')
+    foss = Fossology(fossology_server, token, "fossy")
+
+    spdx_workdir = d.getVar('SPDX_WORKDIR')
+    spdx_temp_dir = os.path.join(spdx_workdir, "temp")
+    temp_dir = os.path.join(d.getVar('WORKDIR'), "temp")
+    bb.utils.mkdirhier(spdx_workdir)
+
+    spdx_get_src(d)
+
+    if os.path.isdir(spdx_temp_dir):
+        for f_dir, f in list_files(spdx_temp_dir):
+            temp_file = os.path.join(spdx_temp_dir,f_dir,f)
+            shutil.copy(temp_file, temp_dir)
+
+    tar_file = spdx_create_tarball(d, d.getVar('WORKDIR'), 'patched', spdx_outdir)
+
+    d.setVar('WORKDIR', spdx_workdir)
+
+    if d.getVar('FOLDER_NAME', False):
+        folder_name = d.getVar('FOLDER_NAME')
+        folder = create_folder(d, foss, token, folder_name)
+    else:
+        folder = foss.rootFolder
+    bb.note("Begin to upload.")
+    upload = get_upload(d, folder, foss)
+    if upload == None:
+        upload = upload_oss(d, folder, foss, tar_file)
+        time.sleep(int(d.getVar('WAIT_TIME')))
+    else:
+        pn = (d.getVar( 'PN') or "")
+        bb.warn(pn + "has already been uploaded, don't upload again.")
+}
+def get_upload(d, folder, foss):
+    filename = get_upload_file_name(d)
+    upload_list = foss.list_uploads()
+    upload = None
+    bb.note("Check tarball, %s ,has been uploaded?" % filename)
+    for upload in upload_list:
+        if upload.uploadname == filename and upload.foldername == folder.name:
+            bb.note("The size of uploaded file is %s" % upload.filesize)
+            bb.note("Found " + upload.uploadname  + " in " + folder.name)
+            bb.note("filesha1  = %s" % upload.filesha1)
+            return upload
+    return None
+
+def upload_oss(d, folder, foss, filepath):
+    import os
+
+    from fossology.exceptions import AuthorizationError, FossologyApiError
+    from tenacity import TryAgain
+    from fossology.obj import AccessLevel
+
+    (work_dir, filename) = os.path.split(filepath)
+
+    upload_list = foss.list_uploads()
+    upload = None
+    bb.note("Begin to upload..." + filename)
+    try:
+        upload = foss.upload_file(
+        folder,
+        file=filepath,
+        access_level=AccessLevel.PUBLIC,
+        wait_time=120
+        )
+    except AttributeError as error:
+        bb.error(error.message)
+    except FossologyApiError as error:
+        bb.error(error.message)
+    except TryAgain:
+        time.sleep(30)
+
+    return upload
+
+def get_upload_file_name(d):
+    tarname = get_tar_name(d, 'patched')
+    bb.note("get_upload_file_name :" + tarname)
+    return tarname
+ 
+def create_folder(d, foss, token, folder_name):
+    exist = 0
+
+    folder_list = foss.list_folders()
+    for folder in folder_list:
+        if folder.name == folder_name:
+            exist = 1
+            break
+
+    if exist == 0:
+        bb.note("create_folder :")
+        create_folder_lock.acquire()
+        folder = foss.create_folder(foss.rootFolder, folder_name, description=None)
+        create_folder_lock.release()
+        if folder.name != folder_name:
+            bb.error("Folder %s couldn't be created" % folder_name)
+    else:
+        return folder
+
+def get_upload(d, folder, foss):
+    filename = get_upload_file_name(d)
+    upload_list = foss.list_uploads()
+    upload = None
+    bb.note("Check tarball, %s ,has been uploaded?" % filename)
+    for upload in upload_list:
+        if upload.uploadname == filename and upload.foldername == folder.name:
+            bb.note("The size of uploaded file is %s" % upload.filesize)
+            bb.note("Found " + upload.uploadname  + " in " + folder.name)
+            bb.note("filesha1  = %s" % upload.filesha1)
+            return upload
+    return None
+
+python do_schedule_jobs(){
+    import os
+    import re
+    import time
+    import logging
+
+    #If not for target, won't creat spdx.
+    if bb.data.inherits_class('nopackages', d):
+        return
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logging.basicConfig(level=logging.INFO)
+
+    from fossology import Fossology, fossology_token
+    from fossology.obj import TokenScope
+    from fossology.exceptions import FossologyApiError, AuthenticationError
+    from tenacity import retry, TryAgain, stop_after_attempt
+    from fossology.obj import Agents
+
+    bb.note("Begin to schedule jobs!")
+    info = {}
+    info['workdir'] = (d.getVar('WORKDIR') or "")
+    info['pn'] = (d.getVar( 'PN') or "")
+    info['pv'] = (d.getVar( 'PV') or "")
+
+    manifest_dir = (d.getVar('SPDX_DEPLOY_DIR') or "")
+    if not os.path.exists( manifest_dir ):
+        bb.utils.mkdirhier( manifest_dir )
+
+    spdx_outdir = d.getVar('SPDX_OUTDIR')
+    info['outfile'] = os.path.join(manifest_dir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    sstatefile = os.path.join(spdx_outdir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    if os.path.exists(info['outfile']):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        return
+    if os.path.exists( sstatefile ):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        create_manifest(info,sstatefile)
+        return
+
+    fossology_server = d.getVar('FOSSOLOGY_SERVER')
+    token = d.getVar('TOKEN')
+    foss = Fossology(fossology_server, token, "fossy")
+    pn = d.getVar('PN')
+
+    if d.getVar('FOLDER_NAME', False):
+        folder_name = d.getVar('FOLDER_NAME')
+        folder = create_folder(d, foss, token, folder_name)
+    else:
+        folder = foss.rootFolder
+
+    upload = get_upload(d, folder, foss)
+    if upload == None:
+        bb.error("%s has not been uploaded." + pn)
+
+    if not foss.user.agents:
+        additional_agent = {"PokyAgent": True}
+        foss.user.agents = Agents(True, True, False, False, True, True, True, True, True,)
+    analysis_agents = foss.user.agents.to_dict()
+    jobs_spec = {
+        "analysis": analysis_agents,
+        "decider": {
+            "nomos_monk": True,
+            "bulk_reused": True,
+            "new_scanner": True,
+            "ojo_decider": True,
+        },
+        "reuse": {
+            "reuse_upload": 0,
+            "reuse_group": 0,
+            "reuse_main": True,
+            "reuse_enhanced": True,
+        },
+    }
+
+    jobs = foss.list_jobs(upload=upload)
+    if jobs == None:
+        try:
+            job = foss.schedule_jobs(folder, upload, jobs_spec)
+            if job.name != upload.uploadname:
+                bb.error("Job %s does not relate to the correct upload" % job.name )
+        except FossologyApiError as error:
+            bb.error(error.message)
+    elif len(jobs) < 2:
+        try:
+            job = foss.schedule_jobs(folder, upload, jobs_spec)
+            if job.name != upload.uploadname:
+                bb.error("Job %s does not relate to the correct upload" % job.name )
+        except FossologyApiError as error:
+            bb.error(error.message)
+    else:
+        bb.note("%s jobs has existed " % len(jobs))
+
+    time.sleep(int(d.getVar('WAIT_TIME')))
+    bb.note("Schedule jobs is end!")
+}
+
+def check_jobs(d, foss, uploaded):
+    i = 0
+    job_wait = 120
+    time_wait = 30
+
+    while i < 20:
+        i += 1
+        try:
+            jobs = foss.list_jobs(upload=uploaded)
+        except FossologyApiError as error:
+            bb.error(error.message)
+
+        bb.note("jobs[0].uploadId = %s" % jobs[0].uploadId)
+        if len(jobs) < 2:
+            if i == 4:
+                bb.error("%s jobs start is still not completed." % uploaded.uploadname)
+            else:
+                bb.warn("%s jobs start not completed " % uploaded.uploadname)
+            time.sleep(time_wait)
+        else:
+            break
+
+    i = 0
+    while i < 5:
+        i += 1
+        job = foss.detail_job(jobs[1].id, wait=True, timeout=job_wait)
+        if job.status != "Completed":
+            bb.warn("The Job is still not completed yet. Please comfirm your fossology server.")
+            time.sleep(time_wait)
+        else:
+            bb.note("jobs has completed.")
+            return job
+    bb.error("The Job is still not completed yet. Please comfirm your fossology server.")
+
+python do_get_report(){
+
+    import os, sys, json, shutil, time
+    import logging
+    from fossology import Fossology, fossology_token
+    from fossology.exceptions import AuthorizationError, FossologyApiError
+    from tenacity import TryAgain
+    from fossology.obj import ReportFormat
+
+    i = 0
+    wait_time = 60
+    complete = False
+    report_id = None
+    report = None
+
+    #If not for target, won't creat spdx.
+    if bb.data.inherits_class('nopackages', d):
+        return
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logging.basicConfig(level=logging.INFO)
+
+    bb.note("Begin to get report!")
+
+    fossology_server = d.getVar('FOSSOLOGY_SERVER')
+    token = d.getVar('TOKEN')
+    foss = Fossology(fossology_server, token, "fossy")
+    pn = d.getVar('PN')
+
+    if d.getVar('FOLDER_NAME', False):
+        folder_name = d.getVar('FOLDER_NAME')
+        folder = create_folder(d, foss, token, folder_name)
+    else:
+        folder = foss.rootFolder
     
-    info = {} 
+    manifest_dir = (d.getVar('SPDX_DEPLOY_DIR') or "")
+    if not os.path.exists( manifest_dir ):
+        bb.utils.mkdirhier( manifest_dir )
+
+    spdx_workdir = d.getVar('SPDX_WORKDIR')
+    temp_dir = os.path.join(d.getVar('WORKDIR'), "temp")
+    spdx_temp_dir = os.path.join(spdx_workdir, "temp")
+    spdx_outdir = d.getVar('SPDX_OUTDIR')
+
+    cur_ver_code = get_ver_code(spdx_workdir).split()[0]
+
+    info = {}
     info['workdir'] = (d.getVar('WORKDIR') or "")
     info['pn'] = (d.getVar( 'PN') or "")
     info['pv'] = (d.getVar( 'PV') or "")
@@ -66,6 +430,17 @@ python do_spdx () {
     if info['package_download_location'] != "":
         info['package_download_location'] = info['package_download_location'].split()[0]
     info['spdx_version'] = (d.getVar('SPDX_VERSION') or '')
+
+    info['outfile'] = os.path.join(manifest_dir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    spdx_file = os.path.join(spdx_outdir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    if os.path.exists(info['outfile']):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        return
+    if os.path.exists( spdx_file ):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        create_manifest(info,spdx_file)
+        return
+
     info['data_license'] = (d.getVar('DATA_LICENSE') or '')
     info['creator'] = {}
     info['creator']['Tool'] = (d.getVar('CREATOR_TOOL') or '')
@@ -85,193 +460,10 @@ python do_spdx () {
             if item.endswith(".patch") or item.endswith(".diff"):
                 info['modified'] = "true"
 
-    manifest_dir = (d.getVar('SPDX_DEPLOY_DIR') or "")
-    if not os.path.exists( manifest_dir ):
-        bb.utils.mkdirhier( manifest_dir )
-
-    info['outfile'] = os.path.join(manifest_dir, info['pn'] + "-" + info['pv'] + ".spdx" )
-    sstatefile = os.path.join(spdx_outdir, info['pn'] + "-" + info['pv'] + ".spdx" )
-    
-    # if spdx has been exist
-    if os.path.exists(info['outfile']):
-        bb.note(info['pn'] + "spdx file has been exist, do nothing")
-        return
-    if os.path.exists( sstatefile ):
-        bb.note(info['pn'] + "spdx file has been exist, do nothing")
-        create_manifest(info,sstatefile)
-        return
-
-    spdx_get_src(d)
-
-    bb.note('SPDX: Archiving the patched source...')
-    if os.path.isdir(spdx_temp_dir):
-        for f_dir, f in list_files(spdx_temp_dir):
-            temp_file = os.path.join(spdx_temp_dir,f_dir,f)
-            shutil.copy(temp_file, temp_dir)
-    
-    d.setVar('WORKDIR', spdx_workdir)
-    info['sourcedir'] = spdx_workdir
-    git_path = "%s/git/.git" % info['sourcedir']
-    if os.path.exists(git_path):
-        remove_dir_tree(git_path)
-    tar_name = spdx_create_tarball(d, d.getVar('WORKDIR'), 'patched', spdx_outdir)
-    ## get everything from cache.  use it to decide if 
-    ## something needs to be rerun
-    if not os.path.exists(spdx_outdir):
-        bb.utils.mkdirhier(spdx_outdir)
-    cur_ver_code = get_ver_code(spdx_workdir).split()[0] 
-    ## Get spdx file
-    bb.note(" Begin to get spdxx file ...... ")
-    if not os.path.isfile(tar_name):
-        bb.note(info['pn'] + "has no source, do nothing")
-        return
-
-    invoke_fossology_python(d, tar_name, sstatefile)
-    if get_cached_spdx(sstatefile) != None:
-        write_cached_spdx( info,sstatefile,cur_ver_code )
-        ## CREATE MANIFEST(write to outfile )
-        create_manifest(info,sstatefile)
-    else:
-        bb.error('Can\'t get the spdx file ' + info['pn'] + '. Please check your.')
-    remove_file(tar_name)
-}
-def upload_oss(d, folder, foss, filepath):
-    import os
-    import subprocess
-    from fossology.exceptions import AuthorizationError, FossologyApiError
-    from tenacity import TryAgain
-    
-    wait_time = 60
-
-    from fossology.obj import AccessLevel
-
-    (work_dir, filename) = os.path.split(filepath)
-
-    upload_list = foss.list_uploads()
-    upload = None
-
-    bb.note("Check folder, %s ,has been uploaded?" % filename)
-    bb.note("%s" % folder.name)
-    for upload in upload_list:
-        bb.note("uploaded name = %s" % upload.uploadname)
-        if upload.uploadname == filename and upload.foldername == folder.name:
-            bb.note("The size of uploaded fileis %s" % upload.filesize)
-            bb.note("%s has uploaded, won't upload agin" % filename)
-            return upload
-    try:
-        upload = foss.upload_file(
-        folder,
-        file=filepath,
-        access_level=AccessLevel.PUBLIC,
-        )
-    except AttributeError as error:
-        bb.error(error.message)
-    except FossologyApiError as error:
-        bb.error(error.message)
-    except TryAgain:
-        bb.warn("Upload is still not ready, try again.")
-        while i < 3:
-            time.sleep(wait_time)
-            try:
-                foss.detail_upload(upload.id)
-            except TryAgain:
-                continue
-            bb.error("upload_oss result: upload.filesize = %s." % upload.filesize)
-            bb.note("The result of upload is : %s " % upload)
-            return upload
-        bb.error("Upload still not complete.")
-    
-def create_folder(d, foss, token, folder_name):
-    bb.note("create_folder :")
-    bb.note("parent = %s" % foss.rootFolder)
-    bb.note("new folder = %s" % folder_name)
-    folder = foss.create_folder(foss.rootFolder, folder_name, description=None)
-    if folder.name != folder_name:
-        bb.error("Folder %s couldn't be created" % folder_name)
-    #bb.warn("folder id = %s" % folder.id)
-    return folder
-  
-def start_schedule_jobs(d, folder, foss, upload_oss, upload_filename, wait=False, timeout=30):
-    from fossology.exceptions import FossologyApiError
-    from fossology.obj import Agents
-    job = None
-    job_wait = 120
-    i = 0
-
-    try:
-        analysis_agents = foss.user.agents.to_dict()
-    except AttributeError:
-        # Create default user agents
-        foss.user.agents = Agents(True, True, False, False, True, True, True, True, True,)
-        analysis_agents = foss.user.agents.to_dict()
-    jobs_spec = {
-        "analysis": analysis_agents,
-        "decider": {
-            "nomos_monk": True,
-            "bulk_reused": True,
-            "new_scanner": True,
-            "ojo_decider": True,
-        },
-        "reuse": {
-            "reuse_upload": 0,
-            "reuse_group": 0,
-            "reuse_main": True,
-            "reuse_enhanced": True,
-        },
-    }
-    jobs = foss.list_jobs(upload=upload_oss)
-    if jobs is None:
-        try:
-            job = foss.schedule_jobs(folder, upload_oss, jobs_spec)
-            if job.name != upload_filename:
-                bb.error("Job %s does not relate to the correct upload" % job.name )
-        except FossologyApiError as error:
-            bb.error(error.message)
-    elif len(jobs) < 2:
-        try:
-            job = foss.schedule_jobs(folder, upload_oss, jobs_spec)
-            if job.name != upload_filename:
-                bb.error("Job %s does not relate to the correct upload" % job.name )
-        except FossologyApiError as error:
-            bb.error(error.message)
-    else:
-        bb.note("%s jobs has existed for updated %s " % (len(jobs), upload_filename))
-
-    jobs = foss.list_jobs(upload=upload_oss)
-    bb.note("jobs[0].uploadId = %s" % jobs[0].uploadId)
-    while i < 5:
-        i += 1
-        if len(jobs) < 2:
-            bb.warn("%s jobs start not completed " % upload_filename)
-            time.sleep(30)
-        else:
-            break
-
-    jobs = foss.list_jobs(upload=upload_oss)
-    if len(jobs) < 2:
-        bb.error("%s jobs start not completed,please checkout fossology server." % upload_filename)
-
-    job = foss.detail_job(jobs[1].id, wait=True, timeout=job_wait)
-    if job.status != "Completed":
-        bb.error("The Job is still not completed yet. Please comfirm your fossology server.")
-    else:
-        bb.note("%s jobs has completed." % upload_filename)
-        
-    return job
-
-def get_report(d, foss, upload, report_name):
-    import os 
-    import time
-    from fossology.exceptions import AuthorizationError, FossologyApiError
-    from tenacity import TryAgain
-    from fossology.obj import ReportFormat
-    
-    i = 0
-    wait_time = 60
-    complete = False
-    report_id = None
-    report = None
-
+    upload = get_upload(d, folder, foss)
+    if upload == None:
+        bb.error("Has not been uploaded.")
+    check_jobs(d, foss, upload)
     try:
         report_id = foss.generate_report(
             upload, report_format=ReportFormat.SPDX2TV
@@ -282,15 +474,12 @@ def get_report(d, foss, upload, report_name):
         bb.error(error.message)
     except AttributeError as error:
         bb.error("AttributeError! It seems fossology server is busy.")
-
     if report_id == None:
         bb.error("Get report id failed! Maybe fossology server is busy.")
         return
-    if os.path.isfile(report_name):
-        os.remove(report_name)
-    
-    while i < 4:
+    while i < 20:
         i += 1
+        bb.note("Begin to download_report. report_id = " + report_id)
         try:
             # Plain text
             report = foss.download_report(report_id)
@@ -301,86 +490,59 @@ def get_report(d, foss, upload, report_name):
         except FossologyApiError as error:
             bb.warn("Dowload SPDX file failed, Try again.")
             continue
-        if report != None:
+        if report == None:
+            bb.error("Fail to download report.")
             break
-    if report == None:   
-        bb.error("Get report id failed! Maybe fossology server is busy.")
-    else:
-        with open(report_name, "w+") as report_file:
-            report_file.write(report)
 
-def invoke_fossology_python(d, tar_file, spdx_file):
-    import os
-    import re
-    import time
-    import logging
+    with open(spdx_file, "w+") as file:
+        file.write(report)
+    file.close()
 
-    from fossology import Fossology, fossology_token
-    from fossology.obj import TokenScope
-    from fossology.exceptions import FossologyApiError, AuthenticationError
-    from tenacity import retry, TryAgain, stop_after_attempt
+    if bb.data.inherits_class('packagegroup',d):
+        return True
+    if bb.data.inherits_class('image',d):
+        return True
+    if bb.data.inherits_class('packagegroup',d):
+        return True
+    if bb.data.inherits_class('image',d):
+        return True
 
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logging.basicConfig(level=logging.INFO)
-
-    wait_time = 200
-    i = 0
-    complete = False
-
-    fossology_server = d.getVar('FOSSOLOGY_SERVER')
-    token = d.getVar('TOKEN')
-
-    (work_dir, tar_file) = os.path.split(tar_file)
-    os.chdir(work_dir)
-
-    #if 'http_proxy' in os.environ:
-    #    del os.environ['http_proxy']
-    bb.note("invoke_fossdriver : tar_file = %s " % tar_file)
-    foss = Fossology(fossology_server, token, "fossy")
-
-    if d.getVar('FOLDER_NAME', False):
-        folder_name = d.getVar('FOLDER_NAME')
-        folder = create_folder(d, foss, token, folder_name)
-    else:
-        folder = foss.rootFolder
-   
-    bb.note("Begin to upload.")
-    upload = upload_oss(d, folder, foss, tar_file)
-    job = start_schedule_jobs(d, folder, foss, upload, tar_file)
-    time.sleep(wait_time)
-    while i < 3:
-        i += 1
-        try:
-            job_dtl = foss.detail_job(job.id, wait=True, timeout=60)
-        except FossologyApiError as error:
-            bb.note("Job has not completed.")
-            time.sleep(wait_time)
-            continue
-        bb.note("Job for %s is completed." % tar_file)
-        break
-    time.sleep(wait_time)
-    i = 0
-    while i < 2:
-        i += 1
-        get_report(d, foss, upload, spdx_file)
-        if bb.data.inherits_class('packagegroup',d):
-            return True
-        if bb.data.inherits_class('image',d):
-            return True
-
-        file = open(spdx_file,'r+')
+    file = open(spdx_file,'r+')
+    line = file.readline()
+    while line:
+        if "LicenseID:" in line:
+            complete = True
+            break
         line = file.readline()
-        while line:
-            if "LicenseID:" in line:
-                complete = True
-                break
-            line = file.readline()
-        file.close()
-        if complete == False:
-            bb.warn("license info not complete, try agin.")
-            time.sleep(wait_time)            
-        else:
-            return True
+    file.close()
 
-EXPORT_FUNCTIONS do_spdx
+    write_cached_spdx(info,spdx_file,cur_ver_code)
+    create_manifest(info,spdx_file)
+    if complete == False:
+        bb.warn("license info not complete, please confirm.")
+    else:
+        time.sleep(int(d.getVar('WAIT_TIME')))
+        return True
+}
+
+SSTATETASKS += "do_spdx"
+python do_spdx_setscene () {
+    sstate_setscene(d)
+}
+addtask do_spdx_setscene
+do_spdx () {
+    echo "Create spdx file."
+}
+#addtask do_upload
+#addtask do_upload after do_patch
+#addtask do_schedule_jobs after do_upload
+#addtask do_get_report after do_schedule_jobs
+#addtask do_spdx before do_configure after do_patch
+#addtask do_spdx before do_configure after do_patch
+addtask do_upload after do_patch
+addtask do_schedule_jobs after do_upload
+addtask do_get_report after do_schedule_jobs
+addtask do_spdx
+do_build[recrdeptask] += "do_spdx"
+do_populate_sdk[recrdeptask] += "do_spdx"
+
