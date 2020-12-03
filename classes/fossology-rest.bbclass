@@ -12,6 +12,9 @@
 # 1) Make sure fossdriver has beed installed in your host
 # 2) By default,spdx files will be output to the path which is defined as[SPDX_DEPLOY_DIR] 
 #    in ./meta/conf/spdx-dosocs.conf.
+COPYLEFT_RECIPE_TYPES ?= 'target nativesdk'
+inherit copyleft_filter
+
 inherit spdx-common
 FOSSOLOGY_SERVER ?= "http://127.0.0.1:8081/repo"
 
@@ -28,8 +31,69 @@ NO_PROXY ?= "127.0.0.1"
 # the real top-level directory.
 SPDX_S ?= "${S}"
 
-python do_spdx () {
+python () {
+
+    if bb.data.inherits_class('nopackages', d):
+        return
+
+    pn = d.getVar('PN')
+    assume_provided = (d.getVar("ASSUME_PROVIDED") or "").split()
+    if pn in assume_provided:
+        for p in d.getVar("PROVIDES").split():
+            if p != pn:
+                pn = p
+                break
+
+    # glibc-locale: do_fetch, do_unpack and do_patch tasks have been deleted,
+    # so avoid archiving source here.
+    if pn.startswith('glibc-locale'):
+        return
+    if (d.getVar('PN') == "libtool-cross"):
+        return
+    if (d.getVar('PN') == "libgcc-initial"):
+        return
+    if (d.getVar('PN') == "shadow-sysroot"):
+        return
+
+    # We just archive gcc-source for all the gcc related recipes
+    if d.getVar('BPN') in ['gcc', 'libgcc']:
+        bb.debug(1, 'spdx: There is bug in scan of %s is, do nothing' % pn)
+        return
+
+    spdx_outdir = d.getVar('SPDX_OUTDIR')
+    spdx_workdir = d.getVar('SPDX_WORKDIR')
+    spdx_temp_dir = os.path.join(spdx_workdir, "temp")
+    temp_dir = os.path.join(d.getVar('WORKDIR'), "temp")
+
+    info = {}
+    info['workdir'] = (d.getVar('WORKDIR') or "")
+    info['pn'] = (d.getVar( 'PN') or "")
+    info['pv'] = (d.getVar( 'PV') or "")
+
+    manifest_dir = (d.getVar('SPDX_DEPLOY_DIR') or "")
+    if not os.path.exists( manifest_dir ):
+        bb.utils.mkdirhier( manifest_dir )
+
+    info['outfile'] = os.path.join(manifest_dir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    sstatefile = os.path.join(spdx_outdir, info['pn'] + "-" + info['pv'] + ".spdx" )
+    if os.path.exists(info['outfile']):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        return
+    if os.path.exists( sstatefile ):
+        bb.note(info['pn'] + "spdx file has been exist, do nothing")
+        create_manifest(info,sstatefile)
+        return
+
+    d.appendVarFlag('do_spdx', 'depends', ' %s:do_get_report' % pn)
+    bb.build.addtask('do_get_report', 'do_configure', 'do_patch' , d)
+    bb.build.addtask('do_spdx', 'do_configure', 'do_get_report', d)
+}
+
+python do_get_report () {
     import os, sys, shutil
+
+    if bb.data.inherits_class('nopackages', d):
+        return
 
     pn = d.getVar('PN')
     assume_provided = (d.getVar("ASSUME_PROVIDED") or "").split()
@@ -516,3 +580,17 @@ def invoke_rest_api(d, tar_file, spdx_file, folder_id):
 
     bb.warn("get_spdx of %s is unnormal. Please confirm!")
     return False
+
+SSTATETASKS += "do_spdx"
+python do_spdx_setscene () {
+    sstate_setscene(d)
+}
+addtask do_spdx_setscene
+do_spdx () {
+    echo "Create spdx file."
+}
+addtask do_get_report after do_patch
+addtask do_spdx
+do_build[recrdeptask] += "do_spdx"
+do_populate_sdk[recrdeptask] += "do_spdx"
+
