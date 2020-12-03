@@ -6,9 +6,10 @@ HOMEPAGE = "https://github.com/nexB/scancode-toolkit"
 SECTION = "devel"
 
 LICENSE = "Apache-2.0"
-LIC_FILES_CHKSUM = "file://NOTICE;md5=8aedb84647f637c585e71f8f2e96e5c8"
+LIC_FILES_CHKSUM = "file://NOTICE;md5=1b6f6f8c3c1cdf360ee512a29241127b"
 
 inherit native
+
 
 DEPENDS = "xz-native zlib-native libxml2-native \
 	   libxslt-native bzip2-native \
@@ -17,12 +18,12 @@ DEPENDS = "xz-native zlib-native libxml2-native \
 SRC_URI = "git://github.com/nexB/scancode-toolkit;branch=develop \
           "
 
-SRCREV = "4a5c596a2f02bb69e7764a8e2641286f5625d85e"
+SRCREV = "ba4bbf216c6f44572662d16c76214a08b0a69e7e"
 
 S = "${WORKDIR}/git"
 B = "${S}"
 
-export PYTHON_EXE="${HOSTTOOLS_DIR}/python3"
+export PYTHON_EXE="${HOSTTOOLS_DIR}/python"
 
 do_configure(){
 	./scancode --help
@@ -35,6 +36,5 @@ do_install_append(){
 
 	install ${S}/scancode ${D}${bindir}/
 	cp -rf ${S}/bin/* ${D}${bindir}/bin/
-	cp -rf ${S}/include/* ${D}${bindir}/include/
 }
 
