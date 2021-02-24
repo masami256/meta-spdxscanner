@@ -154,8 +154,10 @@ python do_upload(){
     if d.getVar('FOLDER_NAME', False):
         folder_name = d.getVar('FOLDER_NAME')
         folder = create_folder(d, foss, token, folder_name)
+        bb.note("folder = " + folder.name)
     else:
         folder = foss.rootFolder
+    
     bb.note("Begin to upload.")
     upload = get_upload(d, folder, foss)
     if upload == None:
@@ -167,10 +169,11 @@ python do_upload(){
 }
 def get_upload(d, folder, foss):
     filename = get_upload_file_name(d)
-    upload_list = foss.list_uploads()
+    upload_list,pages = foss.list_uploads()
     upload = None
     bb.note("Check tarball, %s ,has been uploaded?" % filename)
     for upload in upload_list:
+        bb.note("upload  = %s" % upload)
         if upload.uploadname == filename and upload.foldername == folder.name:
             bb.note("The size of uploaded file is %s" % upload.filesize)
             bb.note("Found " + upload.uploadname  + " in " + folder.name)
@@ -195,6 +198,7 @@ def upload_oss(d, folder, foss, filepath):
         folder,
         file=filepath,
         access_level=AccessLevel.PUBLIC,
+        group=None,
         wait_time=120
         )
     except AttributeError as error:
@@ -232,10 +236,11 @@ def create_folder(d, foss, token, folder_name):
 
 def get_upload(d, folder, foss):
     filename = get_upload_file_name(d)
-    upload_list = foss.list_uploads()
+    upload_list,pages = foss.list_uploads()
     upload = None
     bb.note("Check tarball, %s ,has been uploaded?" % filename)
     for upload in upload_list:
+        bb.note("upload  = %s" % upload)
         if upload.uploadname == filename and upload.foldername == folder.name:
             bb.note("The size of uploaded file is %s" % upload.filesize)
             bb.note("Found " + upload.uploadname  + " in " + folder.name)
@@ -319,7 +324,7 @@ python do_schedule_jobs(){
         },
     }
 
-    jobs = foss.list_jobs(upload=upload)
+    jobs,pages = foss.list_jobs(upload=upload)
     if jobs == None:
         try:
             job = foss.schedule_jobs(folder, upload, jobs_spec)
@@ -349,7 +354,7 @@ def check_jobs(d, foss, uploaded):
     while i < 20:
         i += 1
         try:
-            jobs = foss.list_jobs(upload=uploaded)
+            jobs,pages = foss.list_jobs(upload=uploaded)
         except FossologyApiError as error:
             bb.error(error.message)
 
@@ -379,6 +384,7 @@ python do_get_report(){
 
     import os, sys, json, shutil, time
     import logging
+    import subprocess
     from fossology import Fossology, fossology_token
     from fossology.exceptions import AuthorizationError, FossologyApiError
     from tenacity import TryAgain
@@ -481,7 +487,6 @@ python do_get_report(){
         i += 1
         bb.note("Begin to download_report. report_id = " + report_id)
         try:
-            # Plain text
             report = foss.download_report(report_id)
         except TryAgain:
             bb.warn("SPDX file is still not ready, try again.")
@@ -494,9 +499,13 @@ python do_get_report(){
             bb.error("Fail to download report.")
             break
 
+    report = str(report).lstrip("('")
+    report = report.rstrip("')")
     with open(spdx_file, "w+") as file:
         file.write(report)
     file.close()
+    
+    subprocess.call(r"sed -i -e 's#\\n#\n#g' %s" % spdx_file, shell=True)
 
     if bb.data.inherits_class('packagegroup',d):
         return True
