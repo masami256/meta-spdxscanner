@@ -86,13 +86,19 @@ python () {
         create_manifest(info,sstatefile)
         return
 
-    d.appendVarFlag('do_schedule_jobs', 'depends', ' %s:do_upload' % pn)
-    d.appendVarFlag('do_get_report', 'depends', ' %s:do_schedule_jobs' % pn)
-    d.appendVarFlag('do_spdx', 'depends', ' %s:do_get_report' % pn)
-    bb.build.addtask('do_upload', 'do_configure', 'do_patch', d)
-    bb.build.addtask('do_schedule_jobs', 'do_configure', 'do_upload', d)
-    bb.build.addtask('do_get_report', 'do_configure', 'do_schedule_jobs', d)
-    bb.build.addtask('do_spdx', 'do_configure', 'do_get_report', d)
+    def hasTask(task):
+        return bool(d.getVarFlag(task, "task", False)) and not bool(d.getVarFlag(task, "noexec", False))
+    
+    if d.getVarFlag('ARCHIVER_MODE', 'srpm') == "1" and d.getVar('PACKAGES'):
+        # Some recipes do not have any packaging tasks
+        if hasTask("do_package_write_rpm") or hasTask("do_package_write_ipk") or hasTask("do_package_write_deb"):
+            d.appendVarFlag('do_schedule_jobs', 'depends', ' %s:do_upload' % pn)
+            d.appendVarFlag('do_get_report', 'depends', ' %s:do_schedule_jobs' % pn)
+            d.appendVarFlag('do_spdx', 'depends', ' %s:do_get_report' % pn)
+            bb.build.addtask('do_upload', 'do_configure', 'do_patch', d)
+            bb.build.addtask('do_schedule_jobs', 'do_configure', 'do_upload', d)
+            bb.build.addtask('do_get_report', 'do_configure', 'do_schedule_jobs', d)
+            bb.build.addtask('do_spdx', 'do_configure', 'do_get_report', d)
 }
 
 python do_upload(){
