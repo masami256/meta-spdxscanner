@@ -160,6 +160,7 @@ python do_upload(){
     if d.getVar('FOLDER_NAME', False):
         folder_name = d.getVar('FOLDER_NAME')
         folder = create_folder(d, foss, token, folder_name)
+        time.sleep(int(d.getVar('WAIT_TIME')))
         bb.note("folder = " + folder.name)
     else:
         folder = foss.rootFolder
