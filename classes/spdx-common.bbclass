@@ -208,9 +208,9 @@ def find_infoinlicensefile(sstatefile):
             bb.note("Found readme file " + base_file_name)
         elif base_file_name.startswith("README"):
             bb.note("Found README file " + base_file_name)
-        elif base_file_name.startswith("COPYING") or base_file_name.endswith("COPYING"):
+        elif base_file_name.find("COPYING")>=0:
             bb.note("Found COPYING file " + base_file_name)
-        elif base_file_name.startswith("LICENSE"):
+        elif base_file_name.find("LICENSE")>=0:
             bb.note("Found LICENSE file: " + base_file_name)
         else:
             continue
