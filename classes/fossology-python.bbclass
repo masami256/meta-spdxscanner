@@ -241,20 +241,6 @@ def create_folder(d, foss, token, folder_name):
     else:
         return folder
 
-def get_upload(d, folder, foss):
-    filename = get_upload_file_name(d)
-    upload_list,pages = foss.list_uploads()
-    upload = None
-    bb.note("Check tarball, %s ,has been uploaded?" % filename)
-    for upload in upload_list:
-        bb.note("upload  = %s" % upload)
-        if upload.uploadname == filename and upload.foldername == folder.name:
-            bb.note("The size of uploaded file is %s" % upload.filesize)
-            bb.note("Found " + upload.uploadname  + " in " + folder.name)
-            bb.note("filesha1  = %s" % upload.filesha1)
-            return upload
-    return None
-
 python do_schedule_jobs(){
     import os
     import re
