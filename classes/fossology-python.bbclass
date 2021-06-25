@@ -19,7 +19,7 @@ inherit copyleft_filter
 
 inherit spdx-common 
 
-do_upload[dirs] = "${SPDX_TOPDIR}"
+do_foss_upload[dirs] = "${SPDX_TOPDIR}"
 do_schedule_jobs[dirs] = "${SPDX_TOPDIR}"
 do_get_report[dirs] = "${SPDX_OUTDIR}"
 
@@ -63,12 +63,8 @@ python () {
         return
 
     spdx_outdir = d.getVar('SPDX_OUTDIR')
-    spdx_workdir = d.getVar('SPDX_WORKDIR')
-    spdx_temp_dir = os.path.join(spdx_workdir, "temp")
-    temp_dir = os.path.join(d.getVar('WORKDIR'), "temp")
 
     info = {}
-    info['workdir'] = (d.getVar('WORKDIR') or "")
     info['pn'] = (d.getVar( 'PN') or "")
     info['pv'] = (d.getVar( 'PV') or "")
 
@@ -89,23 +85,21 @@ python () {
     def hasTask(task):
         return bool(d.getVarFlag(task, "task", False)) and not bool(d.getVarFlag(task, "noexec", False))
     
-    if d.getVarFlag('ARCHIVER_MODE', 'srpm') == "1" and d.getVar('PACKAGES'):
-        # Some recipes do not have any packaging tasks
-        if hasTask("do_package_write_rpm") or hasTask("do_package_write_ipk") or hasTask("do_package_write_deb"):
-            d.appendVarFlag('do_schedule_jobs', 'depends', ' %s:do_upload' % pn)
-            d.appendVarFlag('do_get_report', 'depends', ' %s:do_schedule_jobs' % pn)
-            d.appendVarFlag('do_spdx', 'depends', ' %s:do_get_report' % pn)
-            bb.build.addtask('do_upload', 'do_configure', 'do_patch', d)
-            bb.build.addtask('do_schedule_jobs', 'do_configure', 'do_upload', d)
-            bb.build.addtask('do_get_report', 'do_configure', 'do_schedule_jobs', d)
-            bb.build.addtask('do_spdx', 'do_configure', 'do_get_report', d)
+    if d.getVar('PACKAGES'):
+       # Some recipes do not have any packaging tasks
+       if hasTask("do_package_write_rpm") or hasTask("do_package_write_ipk") or hasTask("do_package_write_deb"):
+           d.appendVarFlag('do_foss_upload', 'depends', ' %s:do_spdx_creat_tarball' % pn)
+           d.appendVarFlag('do_schedule_jobs', 'depends', ' %s:do_foss_upload' % pn)
+           d.appendVarFlag('do_get_report', 'depends', ' %s:do_schedule_jobs' % pn)
+           d.appendVarFlag('do_spdx', 'depends', ' %s:do_get_report' % pn)
+           bb.build.addtask('do_foss_upload', 'do_configure', 'do_patch', d)
+           bb.build.addtask('do_schedule_jobs', 'do_configure', 'do_foss_upload', d)
+           bb.build.addtask('do_get_report', 'do_configure', 'do_schedule_jobs', d)
+           bb.build.addtask('do_spdx', 'do_configure', 'do_get_report', d)
 }
 
-python do_upload(){
+python do_foss_upload(){
     import logging, shutil,time
-
-    if bb.data.inherits_class('nopackages', d):
-        return
 
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
@@ -116,47 +110,12 @@ python do_upload(){
     from fossology.exceptions import FossologyApiError, AuthenticationError
     from tenacity import retry, TryAgain, stop_after_attempt
 
-
-    info = {}
-    info['workdir'] = (d.getVar('WORKDIR') or "")
-    info['pn'] = (d.getVar( 'PN') or "")
-    info['pv'] = (d.getVar( 'PV') or "")
-
-    manifest_dir = (d.getVar('SPDX_DEPLOY_DIR') or "")
-    if not os.path.exists( manifest_dir ):
-        bb.utils.mkdirhier( manifest_dir )
-
-    spdx_outdir = d.getVar('SPDX_OUTDIR')
-    info['outfile'] = os.path.join(manifest_dir, info['pn'] + "-" + info['pv'] + ".spdx" )
-    sstatefile = os.path.join(spdx_outdir, info['pn'] + "-" + info['pv'] + ".spdx" )
-    if os.path.exists(info['outfile']):
-        bb.note(info['pn'] + "spdx file has been exist, do nothing")
-        return
-    if os.path.exists( sstatefile ):
-        bb.note(info['pn'] + "spdx file has been exist, do nothing")
-        create_manifest(info,sstatefile)
-        return
-
     fossology_server = d.getVar('FOSSOLOGY_SERVER')
     token = d.getVar('TOKEN')
     foss = Fossology(fossology_server, token, "fossy")
-
-    spdx_workdir = d.getVar('SPDX_WORKDIR')
-    spdx_temp_dir = os.path.join(spdx_workdir, "temp")
-    temp_dir = os.path.join(d.getVar('WORKDIR'), "temp")
-    bb.utils.mkdirhier(spdx_workdir)
-
-    spdx_get_src(d)
-
-    if os.path.isdir(spdx_temp_dir):
-        for f_dir, f in list_files(spdx_temp_dir):
-            temp_file = os.path.join(spdx_temp_dir,f_dir,f)
-            shutil.copy(temp_file, temp_dir)
-
-    tar_file = spdx_create_tarball(d, d.getVar('WORKDIR'), 'patched', spdx_outdir)
-
-    d.setVar('WORKDIR', spdx_workdir)
-
+    
+    filepath = d.getVar('SPDX_OUTDIR')
+    
     if d.getVar('FOLDER_NAME', False):
         folder_name = d.getVar('FOLDER_NAME')
         folder = create_folder(d, foss, token, folder_name)
@@ -168,17 +127,18 @@ python do_upload(){
     bb.note("Begin to upload.")
     upload = get_upload(d, folder, foss)
     if upload == None:
+        tar_file = get_tarball_name(d, d.getVar('WORKDIR'), 'patched', filepath)
         upload = upload_oss(d, folder, foss, tar_file)
         time.sleep(int(d.getVar('WAIT_TIME')))
     else:
         pn = (d.getVar( 'PN') or "")
-        bb.warn(pn + "has already been uploaded, don't upload again.")
+        bb.warn(pn + " has already been uploaded, don't upload again.")
 }
 def get_upload(d, folder, foss):
     filename = get_upload_file_name(d)
     upload_list,pages = foss.list_uploads()
     upload = None
-    bb.note("Check tarball, %s ,has been uploaded?" % filename)
+    bb.note("Check tarball: %s ,has been uploaded?" % filename)
     for upload in upload_list:
         bb.note("upload  = %s" % upload)
         if upload.uploadname == filename and upload.foldername == folder.name:
@@ -240,6 +200,20 @@ def create_folder(d, foss, token, folder_name):
             bb.error("Folder %s couldn't be created" % folder_name)
     else:
         return folder
+
+def get_upload(d, folder, foss):
+    filename = get_upload_file_name(d)
+    upload_list,pages = foss.list_uploads()
+    upload = None
+    bb.note("Check tarball, %s ,has been uploaded?" % filename)
+    for upload in upload_list:
+        bb.note("upload  = %s" % upload)
+        if upload.uploadname == filename and upload.foldername == folder.name:
+            bb.note("The size of uploaded file is %s" % upload.filesize)
+            bb.note("Found " + upload.uploadname  + " in " + folder.name)
+            bb.note("filesha1  = %s" % upload.filesha1)
+            return upload
+    return None
 
 python do_schedule_jobs(){
     import os
@@ -535,14 +509,9 @@ addtask do_spdx_setscene
 do_spdx () {
     echo "Create spdx file."
 }
-#addtask do_upload
-#addtask do_upload after do_patch
-#addtask do_schedule_jobs after do_upload
-#addtask do_get_report after do_schedule_jobs
-#addtask do_spdx before do_configure after do_patch
-#addtask do_spdx before do_configure after do_patch
-addtask do_upload after do_patch
-addtask do_schedule_jobs after do_upload
+addtask do_spdx_creat_tarball after do_patch
+addtask do_foss_upload after do_spdx_creat_tarball 
+addtask do_schedule_jobs after do_foss_upload
 addtask do_get_report after do_schedule_jobs
 addtask do_spdx
 do_build[recrdeptask] += "do_spdx"
