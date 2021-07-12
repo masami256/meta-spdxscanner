@@ -115,6 +115,18 @@ def spdx_create_tarball(d, srcdir, suffix, ar_outdir):
     shutil.rmtree(srcdir)
     return tarname
 
+def get_tarball_name(d, srcdir, suffix, ar_outdir):
+    """
+    get the tarball file path
+    """
+    import tarfile, shutil
+
+    srcdir = os.path.realpath(srcdir)
+
+    filename = get_tar_name(d, suffix)
+    tarname = os.path.join(ar_outdir, filename)
+    return tarname
+
 # Run do_unpack and do_patch
 def spdx_get_src(d):
     import shutil
@@ -354,5 +366,25 @@ def get_ver_code(dirname):
     ver_code = hash_string(ver_code_string)
     return ver_code
 
+python do_spdx_creat_tarball(){
+    import shutil
+
+    spdx_outdir = d.getVar('SPDX_OUTDIR')
+
+    spdx_workdir = d.getVar('SPDX_WORKDIR')
+    spdx_temp_dir = os.path.join(spdx_workdir, "temp")
+    temp_dir = os.path.join(d.getVar('WORKDIR'), "temp")
+    bb.utils.mkdirhier(spdx_workdir)
+
+    spdx_get_src(d)
+
+    if os.path.isdir(spdx_temp_dir):
+        for f_dir, f in list_files(spdx_temp_dir):
+            temp_file = os.path.join(spdx_temp_dir,f_dir,f)
+            shutil.copy(temp_file, temp_dir)
+
+    bb.note("Creat tarball for  " + spdx_outdir)
+    tar_file = spdx_create_tarball(d, d.getVar('WORKDIR'), 'patched', spdx_outdir)
+}
 do_spdx[depends] = "${SPDXEPENDENCY}"
 
