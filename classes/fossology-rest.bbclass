@@ -157,15 +157,6 @@ python do_get_report () {
     info['outfile'] = os.path.join(manifest_dir, info['pn'] + "-" + info['pv'] + ".spdx" )
     sstatefile = os.path.join(spdx_outdir, info['pn'] + "-" + info['pv'] + ".spdx" )
     
-    # if spdx has been exist
-    if os.path.exists(info['outfile']):
-        bb.note(info['pn'] + "spdx file has been exist, do nothing")
-        return
-    if os.path.exists( sstatefile ):
-        bb.note(info['pn'] + "spdx file has been exist, do nothing")
-        create_manifest(info,sstatefile)
-        return
-
     spdx_get_src(d)
 
     bb.note('SPDX: Archiving the patched source...')
