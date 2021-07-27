@@ -165,7 +165,11 @@ def spdx_get_src(d):
 
     # Make sure gcc and kernel sources are patched only once
     if not (d.getVar('SRC_URI') == "" or is_work_shared(d)):
+        if bb.data.inherits_class('dos2unix', d):
+            d.setVar('WORKDIR', spdx_workdir)
+            bb.build.exec_func('do_convert_crlf_to_lf', d)
         bb.build.exec_func('do_patch', d)
+        
 
     # Some userland has no source.
     if not os.path.exists( spdx_workdir ):

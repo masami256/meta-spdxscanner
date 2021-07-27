@@ -23,7 +23,7 @@ do_foss_upload[dirs] = "${SPDX_TOPDIR}"
 do_schedule_jobs[dirs] = "${SPDX_TOPDIR}"
 do_get_report[dirs] = "${SPDX_OUTDIR}"
 
-#CREATOR_TOOL = "fossology-python.bbclass in meta-spdxscanner"
+CREATOR_TOOL = "fossology-python.bbclass in meta-spdxscanner"
 FOSSOLOGY_SERVER ?= "http://127.0.0.1/repo"
 WAIT_TIME ?= "20"
 
