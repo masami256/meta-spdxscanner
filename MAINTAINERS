@@ -1,7 +1,7 @@
 This file contains a list of maintainers for the meta-spdxscanner layer.
 
 Please submit any patches against meta-spdxscanner to the Yocto Project 
-mailing list (yocto@yoctoproject.org) with'[meta-spdxscanner]' in the 
+mailing list (yocto@lists.yoctoproject.org) with'[meta-spdxscanner]' in the 
 subject.
 
 You may also contact the maintainers directly.
