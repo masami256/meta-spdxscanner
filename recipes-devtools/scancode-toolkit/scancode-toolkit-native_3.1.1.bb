@@ -29,7 +29,7 @@ do_configure(){
 	./scancode --help
 }
 
-do_install_append(){
+do_install:append(){
 	install -d ${D}${bindir}/bin
 	install -d ${D}${bindir}/include
 	install -d ${D}${bindir}/local
