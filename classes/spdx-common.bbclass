@@ -276,13 +276,16 @@ def write_cached_spdx( info,sstatefile, ver_code ):
 
     ## Delet ^M in doc format
     subprocess.call("sed -i -e 's#\r##g' %s" % sstatefile, shell=True)
+    
     ## Document level information
+    subprocess.call("sed -i '/SPDXID: SPDXRef-DOCUMENT/d' %s" % sstatefile, shell=True)
+    subprocess.call("sed -i '/DocumentName: \/srv\/fossology\/repository\/report/d' %s" % sstatefile, shell=True)
+    subprocess.call("sed -i '/DocumentNamespace: http:/i SPDXID: SPDXRef-DOCUMENT' %s" % sstatefile, shell=True)
+    
     sed_cmd = r"sed -i " 
     spdx_DocumentComment = "<text>SPDX for " + info['pn'] + " version " \ 
         + info['pv'] + "</text>"
-    sed_cmd = sed_replace(sed_cmd,"DocumentComment: ",spdx_DocumentComment)
-    sed_cmd = sed_insert(sed_cmd,"SPDXID:","DocumentName: " + info['pn']+"-"+info['pv'])
-    sed_cmd = sed_insert(sed_cmd,"SPDXID:","DocumentNamespace: http://spdx.org/spdxdocs/SPDXRef-" + info['creator']['Tool']+"-"+info['pn']+"_"+info['pv'])
+    sed_cmd = sed_insert(sed_cmd,"SPDXID: SPDXRef-DOCUMENT","DocumentName: " + info['pn']+"-"+info['pv'])
 
     ## Creator information
     sed_cmd = sed_replace(sed_cmd,"Creator: Tool: ",info['creator']['Tool'])
