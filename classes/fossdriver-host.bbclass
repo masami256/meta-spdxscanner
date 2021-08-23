@@ -43,6 +43,11 @@ SPDX_S ?= "${S}"
 python do_spdx () {
     import os, sys, json, shutil
 
+    orig_WORKDIR = d.getVar('WORKDIR')
+    orig_S = d.getVar('S')
+    orig_B = d.getVar('B')
+    d.setVar('ORIG_S', orig_S)
+
     pn = d.getVar('PN')
     assume_provided = (d.getVar("ASSUME_PROVIDED") or "").split()
     if pn in assume_provided:
@@ -115,7 +120,10 @@ python do_spdx () {
         create_manifest(info,sstatefile)
         return
 
-    spdx_get_src(d)
+    if d.getVar('DPN') == "":
+        spdx_get_src(d)
+    else:
+        spdx_get_src_metadebian(d)
 
     bb.note('SPDX: Archiving the patched source...')
     if os.path.isdir(spdx_temp_dir):
@@ -142,9 +150,20 @@ python do_spdx () {
         create_manifest(info,sstatefile)
     else:
         bb.warn('Can\'t get the spdx file ' + info['pn'] + '. Please check your.')
+
+    d.setVar('WORKDIR', orig_WORKDIR)
+    d.setVar('S', orig_S)
+    d.setVar('B', orig_B)
 }
 
-addtask do_spdx before do_unpack after do_fetch
+python() {
+    if d.getVar('DPN') == "":
+        bb.build.addtask('do_spdx', 'do_unpack', 'do_fetch', d)
+    else:
+        # We don't run unpack and patch task during spdx task.
+        # Therefore copy patched source after patch task
+        bb.build.addtask('do_spdx', 'do_configure', 'do_patch', d)
+}
 
 def spdx_create_tarball(d, srcdir, suffix, ar_outdir):
     """
@@ -206,6 +225,47 @@ def spdx_get_src(d):
     # Some userland has no source.
     if not os.path.exists( spdx_workdir ):
         bb.utils.mkdirhier(spdx_workdir)
+
+def spdx_get_src_metadebian(d):
+    import shutil
+    spdx_workdir = d.getVar('SPDX_WORKDIR')
+    spdx_sysroot_native = d.getVar('STAGING_DIR_NATIVE')
+    pn = d.getVar('PN')
+
+    # We just archive gcc-source for all the gcc related recipes
+    if d.getVar('BPN') in ['gcc', 'libgcc']:
+        bb.debug(1, 'spdx: There is bug in scan of %s is, do nothing' % pn)
+        return
+
+    # The kernel class functions require it to be on work-shared, so we dont change WORKDIR
+    if not is_work_shared(d):
+        # Change the WORKDIR to make do_unpack do_patch run in another dir.
+        d.setVar('WORKDIR', spdx_workdir)
+        # Restore the original path to recipe's native sysroot (it's relative to WORKDIR).
+        d.setVar('STAGING_DIR_NATIVE', spdx_sysroot_native)
+
+        # The changed 'WORKDIR' also caused 'B' changed, create dir 'B' for the
+        # possibly requiring of the following tasks (such as some recipes's
+        # do_patch required 'B' existed).
+        bb.utils.mkdirhier(d.getVar('B'))
+
+    # Some userland has no source.
+    if not os.path.exists( spdx_workdir ):
+        bb.utils.mkdirhier(spdx_workdir)
+
+    copy_sources(d)
+
+
+def copy_sources(d):
+    import os
+
+    if not is_work_shared(d):
+        src_dir = d.getVar('ORIG_S')
+        dst_dir = d.getVar('WORKDIR')
+        cmd = 'cp -r {} {}'.format(src_dir, dst_dir)
+        bb.debug(1, 'cmd : {}'.format(cmd))
+        ret = os.system(cmd)
+
 
 def invoke_fossdriver(tar_file, spdx_file):
     import os
